@@ -13,27 +13,27 @@ docker compose exec web npx vitest run src/tests/part2.test.ts --hookTimeout=600
 
 ## Summary
 
-| Test | Before fixes | After fixes |
-|------|--------------|-------------|
-| A: a viewer cannot update a task | ❌ expected 403, got **200** | ✅ 403 |
+| Test | Run 1: original tests | Run 2: after Test B fix |
+|------|-----------------------|-------------------------|
+| A: a viewer cannot update a task | ❌ expected 403, got **200** | ❌ expected 403, got **200** (app bug, still open) |
 | B: a viewer cannot create a task | ❌ expected 401, got **403** | ✅ 403 |
 | C: a member can create a task | ✅ 201 | ✅ 201 |
 | D: a viewer can list tasks (read-only access) | ✅ 200 | ✅ 200 |
-| **Total** | **2 failed, 2 passed** | **4 passed** |
+| **Total** | **2 failed, 2 passed** | **1 failed, 3 passed** |
 
-## What was fixed
+## Diagnosis
 
-| Test | Diagnosis | Fix |
-|------|-----------|-----|
-| A | **App bug.** `PATCH /api/tasks/:id` never checked project membership or role, so any logged-in user could edit any task ([BUGS.md #1](BUGS.md#1-viewers-and-non-members-can-edit-tasks)). | Added the membership and `canEditTasks` checks to the update handler in [src/app/api/tasks/[id]/route.ts](src/app/api/tasks/[id]/route.ts). This matches what create and delete already did. A viewer now gets 403 `viewers cannot update tasks`; a non-member gets 403 `you are not a member of this project`. |
+| Test | Diagnosis | Action |
+|------|-----------|--------|
+| A | **App bug.** `PATCH /api/tasks/:id` never checks project membership or role, so any logged-in user can edit any task ([BUGS.md #1](BUGS.md#1-viewers-and-non-members-can-edit-tasks)). The test is correct: a viewer should get `403 Forbidden`. | **Not fixed; the test fails on purpose.** The assertion is unchanged, because it correctly catches the bug. The test will pass once the update handler adds the membership and `canEditTasks` checks that create and delete already use. |
 | B | **Test bug.** The test expected `401 Unauthorized`, but the viewer *is* logged in; they just aren't allowed to create tasks. The correct status is `403 Forbidden`, which the API already returned. | Changed the expected status in Test B from `401` to `403`. The app code was not changed for this test. |
-| D | New test: confirms that a viewer still has read access after the fix. | No fix needed. |
+| D | New test: confirms that a viewer has read access to the project's tasks. | No fix needed. |
 
 ---
 
-## Run 1: Before fixes
+## Run 1: Original tests
 
-This run used the original test file (Test B expecting `401`) plus the new Test D, with no app changes.
+This run used the original test file (Test B expecting `401`) plus the new Test D. The app code is unchanged in both runs.
 
 ```text
  RUN  v2.1.8 /app
@@ -92,21 +92,43 @@ AssertionError: expected 403 to be 401 // Object.is equality
    Duration  16.01s (transform 267ms, setup 391ms, collect 102ms, tests 14.14s, environment 3ms, prepare 287ms)
 ```
 
-## Run 2: After fixes
+## Run 2: After Test B fix
 
-This run was made after the route fix and the change to Test B. The `web` container was restarted first, because the dev server running on a Windows bind mount does not pick up file changes automatically. The restart also reseeded the database.
+This run was made after changing the Test B assertion from `401` to `403`. The app code is unchanged, so Test A still fails because of the app bug. The `web` container was restarted first, because the dev server running on a Windows bind mount does not pick up file changes automatically. The restart also reseeded the database.
 
 ```text
  RUN  v2.1.8 /app
 
- ✓ src/tests/part2.test.ts (4 tests) 27314ms
-   ✓ task access control > a viewer cannot update a task 8022ms
-   ✓ task access control > a viewer cannot create a task 2024ms
-   ✓ task access control > a member can create a task 2858ms
-   ✓ task access control > a viewer can list tasks (read-only access) 3013ms
+ ❯ src/tests/part2.test.ts (4 tests | 1 failed) 29967ms
+   × task access control > a viewer cannot update a task 6421ms
+     → expected 200 to be 403 // Object.is equality
+   ✓ task access control > a viewer cannot create a task 1751ms
+   ✓ task access control > a member can create a task 1605ms
+   ✓ task access control > a viewer can list tasks (read-only access) 1842ms
 
- Test Files  1 passed (1)
-      Tests  4 passed (4)
-   Start at  01:59:46
-   Duration  30.90s (transform 483ms, setup 1.05s, collect 260ms, tests 27.31s, environment 1ms, prepare 405ms)
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/tests/part2.test.ts > task access control > a viewer cannot update a task
+AssertionError: expected 200 to be 403 // Object.is equality
+
+- Expected
++ Received
+
+- 403
++ 200
+
+ ❯ src/tests/part2.test.ts:57:24
+     55|       body: JSON.stringify({ title: "viewer update attempt" }),
+     56|     });
+     57|     expect(res.status).toBe(403);
+       |                        ^
+     58|   });
+     59| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  02:46:13
+   Duration  34.98s (transform 405ms, setup 746ms, collect 205ms, tests 29.97s, environment 1ms, prepare 652ms)
 ```

@@ -8,7 +8,7 @@ Bugs are listed from highest to lowest business impact.
 
 | # | Bug | Category | Severity | Status |
 |---|-----|----------|----------|--------|
-| 1 | Viewers (and non-members) can edit tasks | Security | Critical | **Fixed** |
+| 1 | Viewers (and non-members) can edit tasks | Security | Critical | Open |
 | 2 | New accounts cannot create or see any project | Architecture | High | Open |
 | 3 | No way to add members to a project or set their role | Architecture | High | Open |
 | 4 | Viewers still see the add, delete and save buttons | Security | Medium | Open |
@@ -40,13 +40,15 @@ The IDs above are from this run. After a reseed, get them from `GET /api/project
 - **Files:** [src/app/api/tasks/[id]/route.ts:16-38](src/app/api/tasks/[id]/route.ts#L16-L38)
 - **Category:** Security
 - **Severity:** Critical
-- **Status:** Fixed. The update (`PATCH`) handler now checks project membership and `canEditTasks` before saving, the same checks that create and delete already used.
+- **Status:** Open. Part 2 Test A catches this bug and is left failing on purpose (see below).
 
 > When a viewer opens a task in the edit dialog, changes the title and clicks **save**, the app saves the change (`PATCH /api/tasks/:id` returns 200), but it should refuse the change with a 403, just as it already does for create and delete.
 
-The update handler checked that the user was logged in, but never called `getProjectMembership` or `canEditTasks`. Because of this, **any logged-in user could edit any task in any project if they knew its ID**, including people who aren't members of that project. Anyone could change task content, status or assignee without permission.
+The update handler checks that the user is logged in, but never calls `getProjectMembership` or `canEditTasks`. Because of this, **any logged-in user can edit any task in any project if they know its ID**, including people who aren't members of that project. Anyone can change task content, status or assignee without permission.
 
-**Curl proof (before the fix):**
+**Suggested fix:** in the `PATCH` handler, after loading the task, call `getProjectMembership(user.id, existing.projectId)` and return 403 if there is no membership or if `canEditTasks(membership.role)` is false. This is the same check the `DELETE` handler in the same file already does.
+
+**Curl proof:**
 
 ```bash
 # Viewer edits a task
@@ -64,24 +66,23 @@ $ curl -s -w "\nHTTP %{http_code}\n" -X PATCH $B/api/tasks/$TASK \
 HTTP 200
 ```
 
-**Curl proof (after the fix):** the database was reseeded, so the task ID is different.
+**Re-checked after a reseed** (new IDs: project `cmw5sw4wg0006ny3luxdw8sph`, task `cmw5sw56m000vny3llggi51ae`). The bug is still there:
 
 ```bash
-$ curl -s -w " HTTP %{http_code}\n" -X PATCH $B/api/tasks/$TASK -H "Authorization: Bearer $VIEWER" \
-    -H "Content-Type: application/json" -d '{"title":"Prepare customer email blast"}'
-{"error":"viewers cannot update tasks"} HTTP 403
+$ curl -s -w "\nHTTP %{http_code}\n" -X PATCH $B/api/tasks/$TASK \
+    -H "Authorization: Bearer $VIEWER" -H "Content-Type: application/json" \
+    -d '{"title":"EDITED BY VIEWER"}'
+{"task":{"id":"cmw5sw56m000vny3llggi51ae","projectId":"cmw5sw4wg0006ny3luxdw8sph","title":"EDITED BY VIEWER",…}}
+HTTP 200
 
-$ curl -s -w " HTTP %{http_code}\n" -X PATCH $B/api/tasks/$TASK -H "Authorization: Bearer $OUTSIDER" \
-    -H "Content-Type: application/json" -d '{"title":"Prepare customer email blast"}'
-{"error":"you are not a member of this project"} HTTP 403
-
-# A member can still edit (no regression)
-$ curl -s -w " HTTP %{http_code}\n" -X PATCH $B/api/tasks/$TASK -H "Authorization: Bearer $MEMBER" \
-    -H "Content-Type: application/json" -d '{"title":"Prepare customer email blast"}'
-{"task":{"id":"cmw5r8eae000vny3klpr5v7b4",…,"title":"Prepare customer email blast",…}} HTTP 200
+$ curl -s -w "\nHTTP %{http_code}\n" -X PATCH $B/api/tasks/$TASK \
+    -H "Authorization: Bearer $OUTSIDER" -H "Content-Type: application/json" \
+    -d '{"title":"EDITED BY NON-MEMBER"}'
+{"task":{"id":"cmw5sw56m000vny3llggi51ae","projectId":"cmw5sw4wg0006ny3luxdw8sph","title":"EDITED BY NON-MEMBER",…}}
+HTTP 200
 ```
 
-Part 2 Test A covers this; see [TEST_OUTPUT.md](TEST_OUTPUT.md).
+Part 2 Test A (`a viewer cannot update a task`) catches this bug and fails with `expected 200 to be 403`. The test is correct, so it was left unchanged and failing; see [TEST_OUTPUT.md](TEST_OUTPUT.md). The test run also shows the impact: after it ran, the task's title in the database had become "viewer update attempt".
 
 ---
 
@@ -153,7 +154,7 @@ HTTP 404
 
 > When a viewer opens a project or a task, the app shows the **add a task** form and the **delete task** and **save** buttons, but it should hide them (or make the task dialog read-only), because a viewer is not allowed to change tasks.
 
-The project page and the task dialog never check the current user's role, even though the project API already returns each member's role. Viewers fill in forms only to get an error. Until Bug #1 was fixed, **save** actually went through.
+The project page and the task dialog never check the current user's role, even though the project API already returns each member's role. Viewers fill in add and delete forms only to get an error, and because of Bug #1, **save** in the task dialog actually goes through.
 
 **Curl proof:** the page receives the viewer's role but ignores it, and the API rejects these actions:
 
@@ -164,6 +165,7 @@ $ curl -s -H "Authorization: Bearer $VIEWER" $B/api/projects/$PROJECT
  "projectId":"cmw5qa42x0006ny9rqhdclcf4","role":"viewer",…}]}}
 
 # Yet the UI shows the add and delete buttons, which only lead to a 403 error
+# (save is shown too; it returns 200 because of Bug #1)
 $ curl -s -w " HTTP %{http_code}\n" -X POST $B/api/projects/$PROJECT/tasks \
     -H "Authorization: Bearer $VIEWER" -H "Content-Type: application/json" -d '{"title":"x"}'
 {"error":"viewers cannot create tasks"} HTTP 403

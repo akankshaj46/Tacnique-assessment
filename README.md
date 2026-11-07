@@ -100,7 +100,7 @@ curl -H "Authorization: Bearer <token>" http://localhost:3000/api/projects
 ## Assessment Submission
 
 - **Bug report:** [BUGS.md](BUGS.md), with bugs listed by priority and curl proof for each
-- **Test output:** [TEST_OUTPUT.md](TEST_OUTPUT.md), with the Part 2 test run before and after the fixes
+- **Test output:** [TEST_OUTPUT.md](TEST_OUTPUT.md), with both Part 2 test runs (final result: 3 passed, 1 failed; Test A fails on purpose because it catches an app bug, BUGS.md #1)
 - **Screen recording:** [Watch on Google Drive](https://drive.google.com/file/d/12AM7EQ3mSLu8b9pxP0pQfT1n1aWd5Cav/view?usp=sharing)
 
 ### Running the Part 2 tests
