@@ -1,0 +1,10 @@
+# Ensure AI conversation logs are tracked as text
+.ai-conversations/** text
+.claude/** text
+.cursor/** text
+.aider.chat.history.md text
+
+# Shell scripts must keep LF endings (run inside Linux containers)
+bin/* text eol=lf
+*.sh text eol=lf
+.git-hooks/* text eol=lf
